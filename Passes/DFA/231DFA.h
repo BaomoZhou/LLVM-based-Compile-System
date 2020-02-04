@@ -22,6 +22,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <deque>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -236,9 +237,22 @@ class DataFlowAnalysis {
 															std::vector<Info *> & Infos) = 0;
 
   public:
+	// Index to instruction map
+	std::map<unsigned, Instruction *> getIndexToInstr(){
+		return IndexToInstr;
+	}
+	// Instruction to index map
+	std::map<Instruction *, unsigned> getInstrToIndex(){
+		return InstrToIndex;
+	}
+	// Edge to information map
+	std::map<Edge, Info *> getEdgeToInfo(){
+		return EdgeToInfo;
+	}
+
     DataFlowAnalysis(Info & bottom, Info & initialState) :
     								 Bottom(bottom), InitialState(initialState),EntryInstr(nullptr) {}
-
+								
     virtual ~DataFlowAnalysis() {}
 
     /*
@@ -277,8 +291,48 @@ class DataFlowAnalysis {
     	assert(EntryInstr != nullptr && "Entry instruction is null.");
 
     	// (2) Initialize the work list
+		std::set<unsigned> nodeset;
+		for(auto const &I : EdgeToInfo){
+			unsigned start = I.first.first;
+			unsigned end = I.first.second;
+			if(start != 0){
+				if(nodeset.find(start) == nodeset.end()){
+					nodeset.insert(start);
+					worklist.push_back(start);
+				}
+				if(nodeset.find(end) == nodeset.end()){
+					nodeset.insert(end);
+					worklist.push_back(end);
+				}
+			}
+		}
 
     	// (3) Compute until the work list is empty
+		while(!worklist.empty()){
+			unsigned Idx = worklist.front();
+			worklist.pop_front();
+			Instruction *Instr = IndexToInstr[Idx];
+
+			std::vector<unsigned> IncomingEdges;
+			std::vector<unsigned> OutgoingEdges;
+			std::vector<Info *> Infos;
+
+			getIncomingEdges(Idx, &IncomingEdges);
+			getOutgoingEdges(Idx, &OutgoingEdges);
+			flowfunction(Instr, IncomingEdges, OutgoingEdges, Infos);
+
+			for(unsigned i = 0; i <  OutgoingEdges.size(); i++){
+				Edge outgoingEdge = std::make_pair(Idx, OutgoingEdges[i]);
+				Info *newInfo = new Info();
+				Info::join(Infos[i], EdgeToInfo[outgoingEdge], newInfo);
+
+				if(!Info::equals(EdgeToInfo[outgoingEdge], newInfo)){
+					EdgeToInfo[outgoingEdge] = newInfo;
+	  				worklist.push_back(OutgoingEdges[i]);
+				}
+			}
+		}
+
     }
 };
 

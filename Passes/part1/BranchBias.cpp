@@ -1,3 +1,4 @@
+
 #include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/raw_ostream.h"
@@ -20,54 +21,44 @@ using namespace llvm;
 
 namespace {
 struct CountBranchBias: public FunctionPass {
-  static char ID;
-  CountBranchBias() : FunctionPass(ID) {}
+    static char ID;
+    CountBranchBias() : FunctionPass(ID) {}
 
-  bool runOnFunction(Function &F) override {
-      Module *ModPar = F.getParent();
-      LLVMContext &Context = ModPar->getContext();
-      // reverse all blocks of a function
-      Function::iterator Block;
-      for(Block = F.begin(); Block != F.end(); Block++) {
+    bool runOnFunction(Function &F) override {
+        Module* ModPar = F.getParent();
+        LLVMContext &Context = ModPar->getContext();
 
-            vector<Value*> args;
+        FunctionCallee UpdateFunc = ModPar->getOrInsertFunction(
+            "updateBranchInfo",         // name of function
+            Type::getVoidTy(Context),   // return type
+            Type::getInt1Ty(Context)    // first parameter type
+        );
+        FunctionCallee PrintFunc = ModPar->getOrInsertFunction(
+            "printOutBranchInfo",        // name of function
+            Type::getVoidTy(Context)     // return type                   
+        );
 
-            // insert updateInstrInfo at each end of each block
-            IRBuilder<> Builder(&*Block);
-            Builder.SetInsertPoint(Block->getTerminator());
-            FunctionCallee UpdateFunc = ModPar->getOrInsertFunction(
-                "updateInstrInfo", // function name
-                Type::getVoidTy(Context), // return type
-                Type::getInt32Ty(Context), // first parameter
-                Type::getInt32PtrTy(Context), // second parameter
-                Type::getInt32PtrTy(Context)  // third parameter
-            );
-
-            // branch should be at each end of each block
-            BranchInst *InstBranch = dyn_cast<BranchInst>(Block->getTerminator());
-            
-            if (InstBranch != NULL && InstBranch->isConditional()){
-                args.push_back(InstBranch->getCondition());
-                Builder.CreateCall(UpdateFunc, args);
-            }
-
+        Function::iterator Block;
+        for (Block = F.begin(); Block != F.end(); Block++) {
             BasicBlock::iterator BlkPrint;
-            for(BlkPrint = Block->begin(); BlkPrint != Block->end(); BlkPrint++){
-                if ((string)BlkPrint->getOpcodeName() == "ret"){
-                    // insert printOutInstrInfo at here
-                    Builder.SetInsertPoint(&*BlkPrint);
+            for (BlkPrint = Block->begin(); BlkPrint != Block->end(); BlkPrint++) {
+                if (BlkPrint->getOpcode() == 2) {
+                    BranchInst* InstBranch = dyn_cast<BranchInst>(BlkPrint);
+                    if (InstBranch->isConditional() ) {
+                        IRBuilder<> Builder(InstBranch);
+                        vector<Value *> args;
+                        args.push_back(InstBranch->getCondition());
+                        Builder.CreateCall(UpdateFunc, args);
+                    }
+                } 
 
-                    FunctionCallee PrintFunc = ModPar->getOrInsertFunction(
-                        "printOutInstrInfo", // function name
-                        Type::getVoidTy(Context) // return type
-                    );
-
-                    Builder.CreateCall(PrintFunc);
-                }
             }
-      }
-      return false;
-  }
+        }
+
+        IRBuilder<> Builder(&(F.back().back()));
+        Builder.CreateCall(PrintFunc);
+        return false;
+    }
 }; // end of struct CountDymInstruPass
 }  // end of anonymous namespace
 
@@ -75,3 +66,4 @@ char CountBranchBias::ID = 0;
 static RegisterPass<CountBranchBias> X("cse231-bb", "Dynamic BrachBias Counting Pass",
                              false /* Only looks at CFG */,
                              false /* Analysis Pass */);
+                             
